@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Al Arsh Freight Carriers — Dispatch & Operations Console</title>
+
+  <!-- Google Fonts: DM Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"DM Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React & ReactDOM UMD Builds (Works directly in Live Server without Node/Vite) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel Standalone to compile JSX right in the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons Vanilla CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-stone-100 text-zinc-900 antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // Reusable Lucide Icon wrapper for standalone browser usage
+    function Icon({ name, className = 'w-4 h-4' }) {
+      const spanRef = useRef(null);
+
+      useEffect(() => {
+        if (spanRef.current && window.lucide) {
+          spanRef.current.innerHTML = '';
+          const i = document.createElement('i');
+          i.setAttribute('data-lucide', name);
+          i.className = className;
+          spanRef.current.appendChild(i);
+          window.lucide.createIcons({
+            root: spanRef.current,
+          });
+        }
+      }, [name, className]);
+
+      return <span ref={spanRef} className="inline-flex items-center justify-center shrink-0" />;
+    }
+
+    // Initial dataset matching the PDF requirements + realistic South Indian freight telemetry
+    const INITIAL_BOOKINGS = [
+      {
+        id: 'AFC001',
+        lrNo: 'LR-8841',
+        customer: 'ABC Industries',
+        route: 'Chennai → Bengaluru',
+        vehicle: '32 FT',
+        truckNo: 'TN 01 AB 4521',
+        status: 'Completed',
+        date: '2026-11-18',
+        driver: 'Ramesh Kumar',
+        weight: '14.5 Tons',
+        freight: '₹26,500',
+        cargo: 'Industrial Machinery Parts',
+        distance: '346 km',
+        eta: 'POD Signed at Peenya Gate 2',
+      },
+      {
+        id: 'AFC002',
+        lrNo: 'LR-8845',
+        customer: 'XYZ Traders',
+        route: 'Chennai → Hyderabad',
+        vehicle: '14 Wheeler',
+        truckNo: 'TN 18 CQ 8890',
+        status: 'In Transit',
+        date: '2026-11-20',
+        driver: 'Suresh Babu',
+        weight: '21.0 Tons',
+        freight: '₹42,000',
+        cargo: 'FMCG & Packaged Goods',
+        distance: '627 km',
+        eta: 'Crossed Nellore Toll · ETA 06:30 PM',
+      },
+      {
+        id: 'AFC003',
+        lrNo: 'LR-8849',
+        customer: 'Global Steel',
+        route: 'Chennai → Mumbai',
+        vehicle: 'Trailer',
+        truckNo: 'TN 04 DX 1109',
+        status: 'Pending',
+        date: '2026-11-21',
+        driver: 'Awaiting Yard Gate-Out',
+        weight: '28.5 Tons',
+        freight: '₹78,000',
+        cargo: 'Cold Rolled Steel Coils',
+        distance: '1,338 km',
+        eta: 'e-Way Bill Verified · Bay 4',
+      },
+      {
+        id: 'AFC004',
+        lrNo: 'LR-8842',
+        customer: 'Prime Logistics',
+        route: 'Chennai → Coimbatore',
+        vehicle: '10 Wheeler',
+        truckNo: 'TN 37 BZ 6420',
+        status: 'Completed',
+        date: '2026-11-19',
+        driver: 'Karthik Raja',
+        weight: '16.0 Tons',
+        freight: '₹31,200',
+        cargo: 'Textile & Garment Bales',
+        distance: '507 km',
+        eta: 'Unloaded at Avinashi Hub',
+      },
+      {
+        id: 'AFC005',
+        lrNo: 'LR-8847',
+        customer: 'Metro Chemicals',
+        route: 'Chennai → Delhi',
+        vehicle: '32 FT',
+        truckNo: 'TN 12 AT 9034',
+        status: 'In Transit',
+        date: '2026-11-17',
+        driver: 'Imran Khan',
+        weight: '15.2 Tons',
+        freight: '₹94,500',
+        cargo: 'Non-Hazardous Polymers',
+        distance: '2,180 km',
+        eta: 'NH44 Nagpur Bypass · On Schedule',
+      },
+    ];
+
+    // Base stats from task sheet + live updates from new bookings
+    const BASELINE_TOTAL = 120;
+    const BASELINE_ACTIVE = 35;
+    const BASELINE_COMPLETED = 78;
+    const BASELINE_PENDING = 7;
+
+    const VEHICLE_TYPES = [
+      '32 FT',
+      '14 Wheeler',
+      'Trailer',
+      '10 Wheeler',
+      '20 FT Container',
+      '19 FT Eicher',
+    ];
+
+    const STATUS_OPTIONS = ['All', 'Pending', 'In Transit', 'Completed'];
+
+    // Reusable Status Pill Component
+    function StatusBadge({ status, darkMode }) {
+      const config = {
+        Completed: {
+          classes: darkMode
+            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+            : 'bg-emerald-50 text-emerald-800 border-emerald-200',
+          dot: 'bg-emerald-600',
+        },
+        'In Transit': {
+          classes: darkMode
+            ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+            : 'bg-sky-50 text-sky-800 border-sky-200',
+          dot: 'bg-sky-600',
+        },
+        Pending: {
+          classes: darkMode
+            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+            : 'bg-amber-50 text-amber-800 border-amber-200',
+          dot: 'bg-amber-600',
+        },
+      }[status] || {
+        classes: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+        dot: 'bg-zinc-500',
+      };
+
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border whitespace-nowrap ${config.classes}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+          {status}
+        </span>
+      );
+    }
+
+    function App() {
+      const [bookings, setBookings] = useState(() => {
+        try {
+          const saved = localStorage.getItem('afc_bookings_v2');
+          return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
+        } catch {
+          return INITIAL_BOOKINGS;
+        }
+      });
+
+      const [darkMode, setDarkMode] = useState(() => {
+        try {
+          const savedTheme = localStorage.getItem('afc_dark_mode_v2');
+          return savedTheme ? JSON.parse(savedTheme) : false;
+        } catch {
+          return false;
+        }
+      });
+
+      const [searchQuery, setSearchQuery] = useState('');
+      const [statusFilter, setStatusFilter] = useState('All');
+      const [activeNav, setActiveNav] = useState('Dashboard');
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+      const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+      const [selectedBooking, setSelectedBooking] = useState(null);
+      const [toastMessage, setToastMessage] = useState(null);
+
+      const [formData, setFormData] = useState({
+        customer: '',
+        origin: 'Chennai',
+        destination: '',
+        vehicle: '32 FT',
+        truckNo: '',
+        status: 'Pending',
+        cargo: '',
+        weight: '',
+      });
+      const [formError, setFormError] = useState('');
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('afc_bookings_v2', JSON.stringify(bookings));
+        } catch (e) {
+          console.error('Failed to save bookings', e);
+        }
+      }, [bookings]);
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('afc_dark_mode_v2', JSON.stringify(darkMode));
+          if (darkMode) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          console.error('Failed to save theme', e);
+        }
+      }, [darkMode]);
+
+      const triggerToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => {
+          setToastMessage((prev) => (prev === msg ? null : prev));
+        }, 3200);
+      };
+
+      // Dynamic KPI counts anchored to baseline (120, 35, 78, 7)
+      const summaryStats = useMemo(() => {
+        const initialActive = INITIAL_BOOKINGS.filter((b) => b.status === 'In Transit').length;
+        const initialCompleted = INITIAL_BOOKINGS.filter((b) => b.status === 'Completed').length;
+        const initialPending = INITIAL_BOOKINGS.filter((b) => b.status === 'Pending').length;
+
+        const currentActive = bookings.filter((b) => b.status === 'In Transit').length;
+        const currentCompleted = bookings.filter((b) => b.status === 'Completed').length;
+        const currentPending = bookings.filter((b) => b.status === 'Pending').length;
+
+        return {
+          total: BASELINE_TOTAL + (bookings.length - INITIAL_BOOKINGS.length),
+          active: BASELINE_ACTIVE + (currentActive - initialActive),
+          completed: BASELINE_COMPLETED + (currentCompleted - initialCompleted),
+          pending: BASELINE_PENDING + (currentPending - initialPending),
+        };
+      }, [bookings]);
+
+      // Search & status filtering across ID, Customer, Route, and Truck Reg No
+      const filteredBookings = useMemo(() => {
+        return bookings.filter((booking) => {
+          const matchesStatus = statusFilter === 'All' || booking.status === statusFilter;
+          const query = searchQuery.trim().toLowerCase();
+          const matchesSearch =
+            !query ||
+            booking.id.toLowerCase().includes(query) ||
+            booking.customer.toLowerCase().includes(query) ||
+            booking.route.toLowerCase().includes(query) ||
+            (booking.truckNo && booking.truckNo.toLowerCase().includes(query));
+
+          return matchesStatus && matchesSearch;
+        });
+      }, [bookings, searchQuery, statusFilter]);
+
+      // Auto-generate next sequential ID (AFC006+)
+      const nextBookingId = useMemo(() => {
+        const maxNum = bookings.reduce((max, item) => {
+          const num = parseInt(item.id.replace(/\D/g, ''), 10);
+          return !isNaN(num) && num > max ? num : max;
+        }, 0);
+        return `AFC${String(maxNum + 1).padStart(3, '0')}`;
+      }, [bookings]);
+
+      const handleAddBooking = (e) => {
+        e.preventDefault();
+        if (!formData.customer.trim() || !formData.origin.trim() || !formData.destination.trim()) {
+          setFormError('Customer Name, Origin, and Destination are required.');
+          return;
+        }
+
+        const lrNumber = `LR-${8850 + bookings.length}`;
+        const newEntry = {
+          id: nextBookingId,
+          lrNo: lrNumber,
+          customer: formData.customer.trim(),
+          route: `${formData.origin.trim()} → ${formData.destination.trim()}`,
+          vehicle: formData.vehicle,
+          truckNo: formData.truckNo.trim().toUpperCase() || 'TN 01 CK 7120',
+          status: formData.status,
+          date: new Date().toISOString().split('T')[0],
+          driver: formData.status === 'Pending' ? 'Awaiting Yard Gate-Out' : 'Assigned Shift Driver',
+          weight: formData.weight.trim() || '14.0 Tons',
+          freight: '₹34,000',
+          cargo: formData.cargo.trim() || 'Commercial Cargo',
+          distance: '480 km',
+          eta:
+            formData.status === 'Completed'
+              ? 'POD Verified'
+              : formData.status === 'In Transit'
+              ? 'En route on NH'
+              : 'Bay Allocation Pending',
+        };
+
+        setBookings((prev) => [newEntry, ...prev]);
+        setFormData({
+          customer: '',
+          origin: 'Chennai',
+          destination: '',
+          vehicle: '32 FT',
+          truckNo: '',
+          status: 'Pending',
+          cargo: '',
+          weight: '',
+        });
+        setFormError('');
+        setIsNewModalOpen(false);
+        triggerToast(`Created ${newEntry.id} (${newEntry.lrNo}) for ${newEntry.customer}`);
+      };
+
+      const handleStatusChange = (bookingId, newStatus) => {
+        setBookings((prev) =>
+          prev.map((b) =>
+            b.id === bookingId
+              ? {
+                  ...b,
+                  status: newStatus,
+                  eta:
+                    newStatus === 'Completed'
+                      ? 'POD Verified'
+                      : newStatus === 'In Transit'
+                      ? 'En route on NH'
+                      : 'Awaiting Dispatch',
+                }
+              : b
+          )
+        );
+        setSelectedBooking((prev) =>
+          prev && prev.id === bookingId ? { ...prev, status: newStatus } : prev
+        );
+        triggerToast(`${bookingId} marked as ${newStatus}`);
+      };
+
+      const handleExportCsv = () => {
+        const headers = ['Booking ID', 'LR No', 'Customer', 'Route', 'Vehicle', 'Truck No', 'Status'];
+        const rows = filteredBookings.map((b) =>
+          [b.id, b.lrNo || '-', b.customer, b.route, b.vehicle, b.truckNo || '-', b.status]
+            .map((val) => `"${String(val).replace(/"/g, '""')}"`)
+            .join(',')
+        );
+        const csv = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `al-arsh-dispatch-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        triggerToast(`Exported ${filteredBookings.length} dispatch rows to CSV`);
+      };
+
+      const handleResetDemo = () => {
+        setBookings(INITIAL_BOOKINGS);
+        setSearchQuery('');
+        setStatusFilter('All');
+        localStorage.removeItem('afc_bookings_v2');
+        triggerToast('Restored initial dispatch sheet');
+      };
+
+      const navItems = [
+        { name: 'Dashboard', icon: 'layout-dashboard' },
+        { name: 'Bookings', icon: 'clipboard-list', badge: bookings.length },
+        { name: 'Fleet Vehicles', icon: 'truck' },
+        { name: 'Routes & Hubs', icon: 'map-pin' },
+      ];
+
+      const summaryCards = [
+        {
+          title: 'Total Bookings',
+          value: summaryStats.total,
+          note: 'Updated from Madhavaram desk',
+          filterTarget: 'All',
+          icon: 'package',
+          iconStyle: darkMode ? 'bg-zinc-800 text-amber-400' : 'bg-stone-100 text-zinc-800',
+        },
+        {
+          title: 'Active Loads',
+          value: summaryStats.active,
+          note: 'En route on NH44 & NH48',
+          filterTarget: 'In Transit',
+          icon: 'truck',
+          iconStyle: darkMode ? 'bg-sky-500/15 text-sky-400' : 'bg-sky-50 text-sky-700',
+        },
+        {
+          title: 'Completed Loads',
+          value: summaryStats.completed,
+          note: 'POD signed & verified',
+          filterTarget: 'Completed',
+          icon: 'check-circle-2',
+          iconStyle: darkMode ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-700',
+        },
+        {
+          title: 'Pending Loads',
+          value: summaryStats.pending,
+          note: 'Awaiting bay & e-Way bill',
+          filterTarget: 'Pending',
+          icon: 'clock',
+          iconStyle: darkMode ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-50 text-amber-700',
+        },
+      ];
+
+      return (
+        <div
+          className={`min-h-screen flex overflow-x-hidden transition-colors duration-150 ${
+            darkMode ? 'bg-zinc-950 text-zinc-100' : 'bg-stone-100 text-zinc-900'
+          }`}
+        >
+          {/* Mobile Backdrop */}
+          {mobileMenuOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[1px] lg:hidden"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+          )}
+
+          {/* Enterprise Industrial Dark Charcoal Sidebar (Consistent in Light & Dark Mode) */}
+          <aside
+            className={`fixed inset-y-0 left-0 z-50 transform transition-all duration-200 ease-in-out lg:static lg:translate-x-0 flex flex-col bg-zinc-900 text-zinc-100 border-r border-zinc-800 shrink-0 ${
+              mobileMenuOpen ? 'translate-x-0 w-72' : '-translate-x-full w-72'
+            } ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}
+          >
+            {/* Brand Header */}
+            <div
+              className={`h-16 px-4 flex items-center border-b border-zinc-800 ${
+                sidebarCollapsed ? 'lg:justify-center' : 'justify-between'
+              }`}
+            >
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="w-9 h-9 rounded-lg bg-amber-600 flex items-center justify-center text-white shrink-0">
+                  <Icon name="truck" className="w-5 h-5" />
+                </div>
+                <div className={`${sidebarCollapsed ? 'lg:hidden' : 'block'} truncate`}>
+                  <h1 className="font-bold text-sm tracking-tight text-white leading-tight">
+                    AL ARSH FREIGHT
+                  </h1>
+                  <p className="text-[11px] font-mono text-zinc-400 tracking-wide">
+                    CARRIERS · CHENNAI
+                  </p>
+                </div>
+              </div>
+
+              {/* Mobile Close Drawer */}
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg lg:hidden text-zinc-400 hover:text-white"
+                aria-label="Close sidebar"
+              >
+                <Icon name="x" className="w-5 h-5" />
+              </button>
+
+              {/* Laptop Collapse Toggle */}
+              {!sidebarCollapsed && (
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
+                  className="hidden lg:flex items-center justify-center p-2 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                >
+                  <Icon name="panel-left-close" className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Expand Button when Collapsed */}
+            {sidebarCollapsed && (
+              <div className="hidden lg:flex justify-center pt-3">
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  title="Expand sidebar"
+                  aria-label="Expand sidebar"
+                  className="p-2.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+                >
+                  <Icon name="panel-left-open" className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Navigation Items */}
+            <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+              <p
+                className={`px-3 mb-2 text-[11px] font-mono uppercase tracking-wider text-zinc-500 ${
+                  sidebarCollapsed ? 'lg:hidden' : 'block'
+                }`}
+              >
+                Dispatch Desk
+              </p>
+              {navItems.map((item) => {
+                const isActive = activeNav === item.name;
+                return (
+                  <button
+                    key={item.name}
+                    title={sidebarCollapsed ? item.name : undefined}
+                    onClick={() => {
+                      setActiveNav(item.name);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full min-h-[44px] flex items-center rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                      sidebarCollapsed
+                        ? 'lg:justify-center lg:px-0 px-3.5 justify-between'
+                        : 'justify-between px-3.5'
+                    } ${
+                      isActive
+                        ? 'bg-amber-600/15 text-amber-400 border border-amber-500/30'
+                        : 'text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-100'
+                    }`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Icon
+                        name={item.icon}
+                        className={`w-4 h-4 ${isActive ? 'text-amber-400' : ''}`}
+                      />
+                      <span className={`${sidebarCollapsed ? 'lg:hidden' : 'inline'}`}>
+                        {item.name}
+                      </span>
+                    </span>
+                    {item.badge !== undefined && (
+                      <span
+                        className={`font-mono text-xs px-2 py-0.5 rounded font-semibold ${
+                          sidebarCollapsed ? 'lg:hidden' : 'inline-block'
+                        } ${
+                          isActive
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-zinc-800 text-zinc-300'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Operational Yard & Shift Footer */}
+            <div className={`p-3 border-t border-zinc-800 ${sidebarCollapsed ? 'lg:hidden' : 'block'}`}>
+              <div className="p-3 rounded-lg bg-zinc-800/70 border border-zinc-700/70 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold text-zinc-100">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Madhavaram Yard
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                    SHIFT A
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  NH16 & NH48 weighbridge active · Gate 2 open
+                </p>
+              </div>
+            </div>
+          </aside>
+
+          {/* Main Content Wrapper */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Top Sticky Header */}
+            <header
+              className={`sticky top-0 z-30 min-h-16 py-2 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-2 border-b ${
+                darkMode
+                  ? 'bg-zinc-900 border-zinc-800'
+                  : 'bg-white border-zinc-200'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <button
+                  onClick={() => setMobileMenuOpen(true)}
+                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg lg:hidden border shrink-0 ${
+                    darkMode
+                      ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                      : 'border-zinc-200 text-zinc-700 hover:bg-stone-100'
+                  }`}
+                  aria-label="Open navigation menu"
+                >
+                  <Icon name="menu" className="w-5 h-5" />
+                </button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm sm:text-base lg:text-lg font-bold tracking-tight truncate">
+                      Al Arsh Freight Carriers
+                    </h2>
+                    <span
+                      className={`hidden md:inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium shrink-0 ${
+                        darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-stone-100 text-zinc-600'
+                      }`}
+                    >
+                      /{activeNav.toLowerCase().replace(/\s+/g, '-')}
+                    </span>
+                  </div>
+                  <p
+                    className={`text-xs hidden sm:block truncate ${
+                      darkMode ? 'text-zinc-400' : 'text-zinc-500'
+                    }`}
+                  >
+                    Road Freight Operations & Load Tracking · Chennai Hub
+                  </p>
+                </div>
+              </div>
+
+              {/* Header Action Buttons */}
+              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+                <button
+                  onClick={handleResetDemo}
+                  title="Restore initial dispatch records"
+                  aria-label="Reset demo data"
+                  className={`min-w-[44px] min-h-[44px] px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    darkMode
+                      ? 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                      : 'border-zinc-200 bg-white text-zinc-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <Icon name="rotate-ccw" className="w-4 h-4" />
+                  <span className="hidden md:inline">Reset</span>
+                </button>
+
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  aria-label="Toggle dark mode"
+                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                    darkMode
+                      ? 'border-zinc-700 bg-zinc-800 text-amber-400 hover:bg-zinc-700'
+                      : 'border-zinc-200 bg-white text-zinc-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <Icon name={darkMode ? 'sun' : 'moon'} className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => setIsNewModalOpen(true)}
+                  className="min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 rounded-lg bg-amber-600 hover:bg-amber-700 active:scale-[0.99] text-white text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  <Icon name="plus" className="w-4 h-4" />
+                  <span>New Booking</span>
+                </button>
+              </div>
+            </header>
+
+            {/* Toast Notification */}
+            {toastMessage && (
+              <div className="fixed bottom-5 right-5 z-50">
+                <div className="flex items-center gap-2.5 px-4 py-3 rounded-lg shadow-lg border bg-zinc-900 border-zinc-700 text-white text-sm font-medium">
+                  <Icon name="check-circle-2" className="w-4 h-4 text-amber-400" />
+                  <span>{toastMessage}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Main Dashboard Content */}
+            <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-5 sm:space-y-6">
+              {/* View Switcher for Fleet Vehicles or Routes Tabs */}
+              {activeNav === 'Fleet Vehicles' ? (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold">Active Fleet Register</h3>
+                      <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        Registered Tamil Nadu commercial carriers assigned to current loads
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveNav('Dashboard')}
+                      className="text-xs font-semibold text-amber-600 hover:underline"
+                    >
+                      ← Back to Dispatch Board
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {bookings.map((b) => (
+                      <div
+                        key={b.id}
+                        onClick={() => setSelectedBooking(b)}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                          darkMode
+                            ? 'bg-zinc-900 border-zinc-800 hover:border-amber-500/40'
+                            : 'bg-white border-zinc-200 hover:border-amber-500/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-zinc-900 text-amber-400">
+                            {b.truckNo || 'TN 01 AB 4521'}
+                          </span>
+                          <StatusBadge status={b.status} darkMode={darkMode} />
+                        </div>
+                        <p className="font-bold text-sm">{b.vehicle} · {b.driver}</p>
+                        <p className={`text-xs mt-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          {b.route} ({b.id})
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : activeNav === 'Routes & Hubs' ? (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold">National & South Corridor Lanes</h3>
+                      <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        Active origin-destination lanes departing Chennai Hub
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveNav('Dashboard')}
+                      className="text-xs font-semibold text-amber-600 hover:underline"
+                    >
+                      ← Back to Dispatch Board
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {bookings.map((b) => (
+                      <div
+                        key={b.id}
+                        onClick={() => setSelectedBooking(b)}
+                        className={`p-4 rounded-lg border cursor-pointer flex items-center justify-between ${
+                          darkMode
+                            ? 'bg-zinc-900 border-zinc-800 hover:border-amber-500/40'
+                            : 'bg-white border-zinc-200 hover:border-amber-500/60'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-bold text-sm">{b.route}</p>
+                          <p className={`text-xs mt-0.5 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            {b.customer} · {b.distance} · {b.vehicle}
+                          </p>
+                        </div>
+                        <StatusBadge status={b.status} darkMode={darkMode} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <>
+                  {/* 1. Dashboard Overview KPI Cards (Clickable to quick-filter table) */}
+                  <section aria-label="Dashboard Overview">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+                      {summaryCards.map((card) => {
+                        const isCardActive = statusFilter === card.filterTarget;
+                        return (
+                          <button
+                            key={card.title}
+                            type="button"
+                            onClick={() => setStatusFilter(card.filterTarget)}
+                            className={`text-left p-4 sm:p-5 rounded-lg border transition-colors cursor-pointer ${
+                              isCardActive
+                                ? darkMode
+                                  ? 'bg-zinc-900 border-amber-500'
+                                  : 'bg-white border-amber-600 ring-1 ring-amber-600/20'
+                                : darkMode
+                                ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+                                : 'bg-white border-zinc-200 hover:border-zinc-300'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p
+                                  className={`text-xs font-medium ${
+                                    darkMode ? 'text-zinc-400' : 'text-zinc-500'
+                                  }`}
+                                >
+                                  {card.title}
+                                </p>
+                                <p className="font-mono text-2xl sm:text-3xl font-bold tracking-tight mt-1.5 tabular-nums">
+                                  {card.value}
+                                </p>
+                              </div>
+                              <div className={`p-2 sm:p-2.5 rounded-lg shrink-0 ${card.iconStyle}`}>
+                                <Icon name={card.icon} className="w-4 h-4 sm:w-5 sm:h-5" />
+                              </div>
+                            </div>
+                            <p
+                              className={`text-[11px] sm:text-xs mt-3 truncate ${
+                                darkMode ? 'text-zinc-400' : 'text-zinc-500'
+                              }`}
+                            >
+                              {card.note}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  {/* 2. Recent Bookings Table / Mobile Cards */}
+                  <section
+                    aria-label="Recent Bookings"
+                    className={`rounded-lg border overflow-hidden ${
+                      darkMode
+                        ? 'bg-zinc-900 border-zinc-800'
+                        : 'bg-white border-zinc-200'
+                    }`}
+                  >
+                    {/* Toolbar */}
+                    <div
+                      className={`p-4 sm:p-5 border-b space-y-4 ${
+                        darkMode ? 'border-zinc-800' : 'border-zinc-200'
+                      }`}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3.5">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base sm:text-lg font-bold tracking-tight">
+                              {activeNav === 'Bookings' ? 'All Freight Bookings' : 'Recent Bookings'}
+                            </h3>
+                            <span
+                              className={`font-mono text-xs px-2 py-0.5 rounded ${
+                                darkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-stone-100 text-zinc-600'
+                              }`}
+                            >
+                              {filteredBookings.length}/{bookings.length}
+                            </span>
+                          </div>
+                          <p
+                            className={`text-xs mt-0.5 ${
+                              darkMode ? 'text-zinc-400' : 'text-zinc-500'
+                            }`}
+                          >
+                            Select any consignment row to view LR details, truck reg, or update status
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                          {/* Search Input */}
+                          <div className="relative flex-1 md:w-72 lg:w-80">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
+                              <Icon name="search" className="w-4 h-4" />
+                            </span>
+                            <input
+                              type="text"
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              placeholder="Filter ID, customer, route, truck..."
+                              className={`w-full min-h-[42px] pl-9 pr-9 py-2 text-sm rounded-lg border outline-none transition-colors ${
+                                darkMode
+                                  ? 'bg-zinc-950 border-zinc-700 text-zinc-100 placeholder-zinc-500 focus:border-amber-500'
+                                  : 'bg-stone-50 border-zinc-200 text-zinc-900 placeholder-zinc-400 focus:bg-white focus:border-amber-600'
+                              }`}
+                            />
+                            {searchQuery && (
+                              <button
+                                onClick={() => setSearchQuery('')}
+                                aria-label="Clear search"
+                                className="min-w-[34px] min-h-[34px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                              >
+                                <Icon name="x" className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Export CSV Button */}
+                          <button
+                            type="button"
+                            onClick={handleExportCsv}
+                            title="Export visible bookings as CSV"
+                            className={`min-h-[42px] px-3 rounded-lg border text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors ${
+                              darkMode
+                                ? 'border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+                                : 'border-zinc-200 bg-white text-zinc-700 hover:bg-stone-50'
+                            }`}
+                          >
+                            <Icon name="download" className="w-4 h-4" />
+                            <span className="hidden sm:inline">CSV</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Status Filter Buttons */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
+                          {STATUS_OPTIONS.map((status) => {
+                            const count =
+                              status === 'All'
+                                ? bookings.length
+                                : bookings.filter((b) => b.status === status).length;
+                            const isSelected = statusFilter === status;
+
+                            return (
+                              <button
+                                key={status}
+                                onClick={() => setStatusFilter(status)}
+                                className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 border ${
+                                  isSelected
+                                    ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-amber-600 dark:border-amber-600'
+                                    : darkMode
+                                    ? 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                                    : 'bg-stone-50 border-zinc-200 text-zinc-600 hover:bg-stone-100'
+                                }`}
+                              >
+                                <span>{status}</span>
+                                <span
+                                  className={`font-mono text-[11px] ${
+                                    isSelected
+                                      ? 'text-amber-400 dark:text-white'
+                                      : darkMode
+                                      ? 'text-zinc-400'
+                                      : 'text-zinc-400'
+                                  }`}
+                                >
+                                  ({count})
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* MOBILE CARD VIEW (< md) */}
+                    <div className="md:hidden divide-y divide-zinc-200 dark:divide-zinc-800">
+                      {filteredBookings.length > 0 ? (
+                        filteredBookings.map((booking) => (
+                          <div
+                            key={booking.id}
+                            onClick={() => setSelectedBooking(booking)}
+                            className={`p-4 transition-colors cursor-pointer ${
+                              darkMode
+                                ? 'hover:bg-zinc-800/60 active:bg-zinc-800'
+                                : 'hover:bg-stone-50 active:bg-amber-50/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-sm text-amber-600 dark:text-amber-400">
+                                  {booking.id}
+                                </span>
+                                <span className="font-mono text-[11px] text-zinc-400">
+                                  {booking.lrNo}
+                                </span>
+                              </div>
+                              <StatusBadge status={booking.status} darkMode={darkMode} />
+                            </div>
+
+                            <p className="font-bold text-sm mb-1.5">{booking.customer}</p>
+
+                            <p
+                              className={`text-xs font-medium mb-3 ${
+                                darkMode ? 'text-zinc-300' : 'text-zinc-700'
+                              }`}
+                            >
+                              {booking.route}
+                            </p>
+
+                            <div className="flex items-center justify-between text-xs">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded font-mono text-[11px] border ${
+                                  darkMode
+                                    ? 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                                    : 'bg-stone-50 border-zinc-200 text-zinc-700'
+                                }`}
+                              >
+                                {booking.vehicle} · {booking.truckNo}
+                              </span>
+
+                              <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
+                                Inspect <Icon name="chevron-right" className="w-4 h-4" />
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-12 px-6 text-center">
+                          <div className="max-w-xs mx-auto space-y-2">
+                            <p className="font-semibold text-sm">No matching bookings found</p>
+                            <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                              Clear your search query or reset the status filter.
+                            </p>
+                            <button
+                              onClick={() => {
+                                setSearchQuery('');
+                                setStatusFilter('All');
+                              }}
+                              className="mt-2 min-h-[40px] px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
+                            >
+                              Clear Filters
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* LAPTOP & DESKTOP TABLE VIEW (>= md) */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr
+                            className={`text-xs font-semibold uppercase tracking-wider border-b ${
+                              darkMode
+                                ? 'bg-zinc-950/60 text-zinc-400 border-zinc-800'
+                                : 'bg-stone-50 text-zinc-500 border-zinc-200'
+                            }`}
+                          >
+                            <th className="py-3.5 px-5">Booking ID</th>
+                            <th className="py-3.5 px-5">Customer</th>
+                            <th className="py-3.5 px-5">Route</th>
+                            <th className="py-3.5 px-5">Vehicle</th>
+                            <th className="py-3.5 px-5">Status</th>
+                            <th className="py-3.5 px-5 text-right">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody
+                          className={`divide-y text-sm ${
+                            darkMode ? 'divide-zinc-800' : 'divide-zinc-200/80'
+                          }`}
+                        >
+                          {filteredBookings.length > 0 ? (
+                            filteredBookings.map((booking) => (
+                              <tr
+                                key={booking.id}
+                                onClick={() => setSelectedBooking(booking)}
+                                className={`group cursor-pointer transition-colors ${
+                                  darkMode ? 'hover:bg-zinc-800/60' : 'hover:bg-amber-50/40'
+                                }`}
+                              >
+                                <td className="py-3.5 px-5 whitespace-nowrap">
+                                  <div className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                                    {booking.id}
+                                  </div>
+                                  <div className="font-mono text-[11px] text-zinc-400">
+                                    {booking.lrNo}
+                                  </div>
+                                </td>
+                                <td className="py-3.5 px-5 font-semibold whitespace-nowrap">
+                                  {booking.customer}
+                                </td>
+                                <td className="py-3.5 px-5 whitespace-nowrap font-medium">
+                                  {booking.route}
+                                </td>
+                                <td className="py-3.5 px-5 whitespace-nowrap">
+                                  <div className="font-medium text-sm">{booking.vehicle}</div>
+                                  <div className="font-mono text-[11px] text-zinc-400">
+                                    {booking.truckNo}
+                                  </div>
+                                </td>
+                                <td className="py-3.5 px-5 whitespace-nowrap">
+                                  <StatusBadge status={booking.status} darkMode={darkMode} />
+                                </td>
+                                <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-xs font-semibold transition-transform group-hover:translate-x-0.5 ${
+                                      darkMode
+                                        ? 'text-zinc-400 group-hover:text-amber-400'
+                                        : 'text-zinc-500 group-hover:text-amber-600'
+                                    }`}
+                                  >
+                                    Inspect
+                                    <Icon name="chevron-right" className="w-4 h-4" />
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="py-12 px-6 text-center">
+                                <div className="max-w-xs mx-auto space-y-2">
+                                  <p className="font-semibold text-sm">No matching bookings found</p>
+                                  <p
+                                    className={`text-xs ${
+                                      darkMode ? 'text-zinc-400' : 'text-zinc-500'
+                                    }`}
+                                  >
+                                    Clear your search query or reset the status filter.
+                                  </p>
+                                  <button
+                                    onClick={() => {
+                                      setSearchQuery('');
+                                      setStatusFilter('All');
+                                    }}
+                                    className="mt-2 min-h-[40px] px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
+                                  >
+                                    Clear Filters
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </>
+              )}
+            </main>
+          </div>
+
+          {/* MODAL 1: New Booking Form */}
+          {isNewModalOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-[1px]"
+              onClick={() => setIsNewModalOpen(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-xl sm:rounded-lg border shadow-2xl ${
+                  darkMode
+                    ? 'bg-zinc-900 border-zinc-800 text-zinc-100'
+                    : 'bg-white border-zinc-200 text-zinc-900'
+                }`}
+              >
+                <div
+                  className={`sticky top-0 z-10 px-5 sm:px-6 py-4 border-b flex items-center justify-between ${
+                    darkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+                  }`}
+                >
+                  <div>
+                    <h3 className="font-bold text-base">Register New Freight Dispatch</h3>
+                    <p className={`text-xs ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      Booking ID:{' '}
+                      <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                        {nextBookingId}
+                      </span>
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsNewModalOpen(false)}
+                    className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600"
+                  >
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddBooking} className="p-5 sm:p-6 space-y-4">
+                  {formError && (
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-medium">
+                      {formError}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                      Customer / Consignor Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g., Sriperumbudur Auto Ancillaries"
+                      value={formData.customer}
+                      onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
+                      className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                        darkMode
+                          ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                          : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Origin Hub *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Chennai"
+                        value={formData.origin}
+                        onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Destination City *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g., Madurai"
+                        value={formData.destination}
+                        onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Vehicle Class
+                      </label>
+                      <select
+                        value={formData.vehicle}
+                        onChange={(e) => setFormData({ ...formData, vehicle: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      >
+                        {VEHICLE_TYPES.map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Truck Reg. No (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g., TN 18 BQ 3412"
+                        value={formData.truckNo}
+                        onChange={(e) => setFormData({ ...formData, truckNo: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border font-mono text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Dispatch Status
+                      </label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5">
+                        Payload Weight (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g., 16.5 Tons"
+                        value={formData.weight}
+                        onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm outline-none ${
+                          darkMode
+                            ? 'bg-zinc-950 border-zinc-700 focus:border-amber-500'
+                            : 'bg-stone-50 border-zinc-200 focus:bg-white focus:border-amber-600'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsNewModalOpen(false)}
+                      className={`min-h-[42px] px-4 py-2 rounded-lg text-sm font-medium border ${
+                        darkMode
+                          ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                          : 'border-zinc-200 text-zinc-700 hover:bg-stone-50'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="min-h-[42px] px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold cursor-pointer"
+                    >
+                      Issue LR & Save
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 2: Consignment Details Popup */}
+          {selectedBooking && (
+            <div
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-[1px]"
+              onClick={() => setSelectedBooking(null)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-xl sm:rounded-lg border shadow-2xl ${
+                  darkMode
+                    ? 'bg-zinc-900 border-zinc-800 text-zinc-100'
+                    : 'bg-white border-zinc-200 text-zinc-900'
+                }`}
+              >
+                <div
+                  className={`sticky top-0 z-10 px-5 sm:px-6 py-4 border-b flex items-center justify-between ${
+                    darkMode
+                      ? 'border-zinc-800 bg-zinc-900'
+                      : 'border-zinc-200 bg-stone-50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono font-bold text-lg text-amber-600 dark:text-amber-400">
+                        {selectedBooking.id}
+                      </span>
+                      <span className="font-mono text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-200">
+                        {selectedBooking.lrNo || 'LR-8840'}
+                      </span>
+                      <StatusBadge status={selectedBooking.status} darkMode={darkMode} />
+                    </div>
+                    <p className={`text-xs mt-1 ${darkMode ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      Lorry Receipt & Transit Log · {selectedBooking.date}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedBooking(null)}
+                    className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600"
+                  >
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-5 sm:p-6 space-y-5">
+                  <div
+                    className={`p-4 rounded-lg border flex items-center justify-between ${
+                      darkMode
+                        ? 'bg-zinc-950 border-zinc-800'
+                        : 'bg-stone-50 border-zinc-200'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">
+                        Corridor Lane
+                      </p>
+                      <p className="text-base font-bold mt-0.5">{selectedBooking.route}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">
+                        Freight / Distance
+                      </p>
+                      <p className="font-mono text-sm font-bold mt-0.5">
+                        {selectedBooking.freight || '₹32,000'} · {selectedBooking.distance}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs text-zinc-400">Consignor / Customer</p>
+                      <p className="font-semibold mt-0.5">{selectedBooking.customer}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-zinc-400">Vehicle & Reg. No</p>
+                      <p className="font-semibold mt-0.5">
+                        {selectedBooking.vehicle}{' '}
+                        <span className="font-mono text-xs text-amber-600 dark:text-amber-400">
+                          ({selectedBooking.truckNo || 'TN 01 AB 4521'})
+                        </span>
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-zinc-400">Assigned Driver</p>
+                      <p className="font-semibold mt-0.5">{selectedBooking.driver}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-zinc-400">Cargo & Gross Weight</p>
+                      <p className="font-semibold mt-0.5">
+                        {selectedBooking.cargo} ({selectedBooking.weight})
+                      </p>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <p className="text-xs text-zinc-400">Yard / Checkpoint Log</p>
+                      <p className="font-medium mt-0.5">{selectedBooking.eta}</p>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`pt-4 border-t ${
+                      darkMode ? 'border-zinc-800' : 'border-zinc-200'
+                    }`}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2.5">
+                      Update Dispatch Status
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Pending', 'In Transit', 'Completed'].map((st) => {
+                        const active = selectedBooking.status === st;
+                        return (
+                          <button
+                            key={st}
+                            onClick={() => handleStatusChange(selectedBooking.id, st)}
+                            className={`min-h-[42px] py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-amber-600 border-amber-600 text-white'
+                                : darkMode
+                                ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                                : 'bg-stone-50 border-zinc-200 text-zinc-700 hover:bg-stone-100'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`px-5 sm:px-6 py-3.5 border-t flex justify-end ${
+                    darkMode
+                      ? 'border-zinc-800 bg-zinc-950/50'
+                      : 'border-zinc-200 bg-stone-50'
+                  }`}
+                >
+                  <button
+                    onClick={() => setSelectedBooking(null)}
+                    className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-lg bg-zinc-900 dark:bg-zinc-700 text-white text-xs font-semibold hover:opacity-90 cursor-pointer"
+                  >
+                    Close Log
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
